@@ -109,41 +109,51 @@ inline void decode_move(int move, int& x, int &y) {
     }
 }
 
-bool dfs_to_edge(Board& board, int x, int y, Player player, std::vector<bool>& marked) {
+
+
+bool dfs_to_edge(Board& board, int x, int y, Player player, bool marked[BOARD_SIZE * BOARD_SIZE]) {
     if (x < 0 || x >= board.size || y < 0 || y >= board.size)
         return false;
     if (marked[getBoardIndex(x, y, board.size)])
         return false;
-    std::stack<std::pair<int, int>> current;
-    current.emplace(x, y);
-    while (!current.empty()) {
-        auto it = current.top();
-        current.pop();
-        if (board.array[getBoardIndex(it.first, it.second, board.size)] != player)
+    int current[BOARD_SIZE * BOARD_SIZE];
+    int stack_top = 0;
+    int newX, newY, curX, curY;
+    current[stack_top++] = getBoardIndex(x, y, board.size);
+    while (stack_top != 0) {
+        int it = current[--stack_top];
+        if (board.array[it] != player)
             continue;
-        if (player == Player::RED ? it.second == board.size - 1 : it.first == board.size - 1)
+        curX = it % board.size, curY = it / board.size;
+        if (player == Player::RED ? curY == board.size - 1 : curX == board.size - 1)
             return true;
-
-        marked[getBoardIndex(it.first, it.second, board.size)] = true;
-        int newX, newY;
+        marked[it] = true;
         for (int i = 0; i < 6; i++) {
-            newX = it.first, newY = it.second;
+            newX = curX, newY = curY;
             decode_move(i, newX, newY);
-            if (newX < 0 || newX >= board.size || newY < 0 || newY >= board.size || marked[getBoardIndex(newX, newY, board.size)])
+            int index = getBoardIndex(newX, newY, board.size);
+            if (newX < 0 || newX >= board.size || newY < 0 || newY >= board.size || marked[index])
                 continue;
-            current.emplace(newX, newY);
+            current[stack_top++] = index;
 
         }
     }
     return false;
 }
 
-bool is_game_over(Board& board, Player player) {
-    std::vector<bool> marked(board.size * board.size, false);
+bool is_game_over(Board& board, Player player, bool marked[BOARD_SIZE * BOARD_SIZE] = nullptr) {
+    bool new_array = marked == nullptr;
+    if (new_array)
+        marked = (bool*) calloc(board.size * board.size, sizeof(bool));
     for (int x = 0; x < board.size; x++) {
-        if (player == Player::RED ? dfs_to_edge(board, x, 0, Player::RED, marked) : dfs_to_edge(board, 0, x, Player::BLUE, marked))
+        if (player == Player::RED ? dfs_to_edge(board, x, 0, Player::RED, marked) : dfs_to_edge(board, 0, x, Player::BLUE, marked)) {
+            if (new_array)
+                delete[] marked;
             return true;
+        }
     }
+    if (new_array)
+        free(marked);
     return false;
 }
 bool has_many_endings(Board& board, Player player) {
@@ -186,11 +196,9 @@ bool can_win_in_n_moves_inside(Board board, Player player, int moves) {
     if (board.ok_board_response == 2)
         return false;
     std::vector<int> empty_spaces;
-    for (int y = 0; y < board.size; y++) {
-        for (int x = 0; x < board.size; x++) {
-            if (board.array[getBoardIndex(x, y, board.size)] == Player::EMPTY)
-                empty_spaces.push_back(getBoardIndex(x, y, board.size));
-        }
+    for (int y = 0; y < board.size * board.size; y++) {
+        if (board.array[y] == Player::EMPTY)
+            empty_spaces.push_back(y);
     }
     int enemy_moves = moves;
     // red starts
@@ -203,7 +211,10 @@ bool can_win_in_n_moves_inside(Board board, Player player, int moves) {
         return false;
     for (auto i: empty_spaces) {
         board.array[i] = player;
-        if (moves == 2) {
+        bool is_over = is_game_over(board, player);
+        if (is_over && moves == 1)
+            return true;
+        else if (!is_over && moves == 2) {
             for (auto j: empty_spaces) {
                 if (i == j)
                     continue;
@@ -212,8 +223,7 @@ bool can_win_in_n_moves_inside(Board board, Player player, int moves) {
                     return true;
                 board.array[j] = Player::EMPTY;
             }
-        } else if (is_game_over(board, player))
-            return true;
+        }
         board.array[i] = Player::EMPTY;
     }
     return false;
