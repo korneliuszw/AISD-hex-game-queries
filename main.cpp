@@ -9,6 +9,8 @@
 
 #define BOARD_SIZE 11
 
+bool marked[BOARD_SIZE * BOARD_SIZE];
+int read_buffer[BOARD_SIZE * BOARD_SIZE];
 enum class Player {
     BLUE,
     RED,
@@ -16,10 +18,14 @@ enum class Player {
 };
 
 struct Board {
-    std::vector<Player> array;
+    Player array[BOARD_SIZE * BOARD_SIZE];
     int size = 0;
     // 0 - no response, 1 - ok, 2 - no
     int ok_board_response = 0;
+    int empty_spaces = 0;
+    int red_pawns = 0;
+    int blue_pawns = 0;
+    int empty_spaces_array[BOARD_SIZE * BOARD_SIZE];
 };
 
 inline int getBoardIndex(int x, int y, int size) {
@@ -32,14 +38,14 @@ inline int translateInputColumn(int col, int row, int size) {
     return getBoardIndex(size - row + col -1 , col, size);
 }
 
+
 void read_board(Board& board) {
-    board.size = 0;
-    board.ok_board_response = 0;
+    board = Board();
     char input = 0, prevInput = 0, prevPrevInput = 0;
     int row = 0, col = -1, prevCol = 0;
     while (input != '<')
         std::cin.get(input);
-    std::vector<int> buffer;
+    int top = 0;
     while (input != '-' || prevInput != '-' || prevPrevInput != '-') {
         if (input == '\n') {
             if (prevCol <= col)
@@ -51,37 +57,28 @@ void read_board(Board& board) {
             col++;
         }
         else if (input == 'b' || input == 'r') {
-            buffer.push_back(input << 16 | col << 8 | row);
+            read_buffer[top++] = input << 16 | col << 8 | row;
         }
         prevPrevInput = prevInput;
         prevInput = input;
         std::cin.get(input);
     }
-    board.array.resize(board.size * board.size);
-    std::fill(board.array.begin(), board.array.end(), Player::EMPTY);
-    for (auto c: buffer) {
+    for (int i = 0; i < board.size * board.size; i++)
+        board.array[i] = Player::EMPTY;
+    for (int i = 0; i < top; i++) {
+        auto c = read_buffer[i];
         int row = c & 0xFF;
         int col = (c >> 8) & 0xFF;
         char player = (c >> 16) & 0xFF;
-        board.array[translateInputColumn(col, row, board.size)] = player == 'b' ? Player::BLUE : Player::RED;
+        if (player == 'b') {
+            board.blue_pawns++;
+            board.array[translateInputColumn(col, row, board.size)] = Player::BLUE;
+        } else {
+            board.red_pawns++;
+            board.array[translateInputColumn(col, row, board.size)] = Player::RED;
+        }
     }
-}
-
-int count(Board& board) {
-    int count = 0;
-    for (int i = 0; i < board.size * board.size; i++) {
-        if (board.array[i] == Player::BLUE || board.array[i] == Player::RED)
-            count++;
-    }
-    return count;
-}
-int count_of_type(Board& board, Player player) {
-    int count = 0;
-    for (int i = 0; i < board.size * board.size; i++) {
-        if (board.array[i] == player)
-            count++;
-    }
-    return count;
+    board.empty_spaces = board.size * board.size - board.red_pawns - board.red_pawns;
 }
 
 inline void decode_move(int move, int& x, int &y) {
@@ -141,19 +138,16 @@ bool dfs_to_edge(Board& board, int x, int y, Player player, bool marked[BOARD_SI
     return false;
 }
 
-bool is_game_over(Board& board, Player player, bool marked[BOARD_SIZE * BOARD_SIZE] = nullptr) {
-    bool new_array = marked == nullptr;
-    if (new_array)
-        marked = (bool*) calloc(board.size * board.size, sizeof(bool));
+
+bool is_game_over(Board& board, Player player) {
+    for (int i = 0; i < BOARD_SIZE * BOARD_SIZE; i++) {
+        marked[i] = false;
+    }
     for (int x = 0; x < board.size; x++) {
         if (player == Player::RED ? dfs_to_edge(board, x, 0, Player::RED, marked) : dfs_to_edge(board, 0, x, Player::BLUE, marked)) {
-            if (new_array)
-                delete[] marked;
             return true;
         }
     }
-    if (new_array)
-        free(marked);
     return false;
 }
 bool has_many_endings(Board& board, Player player) {
@@ -170,72 +164,83 @@ bool has_many_endings(Board& board, Player player) {
     return true;
 }
 
-
-
-
+int getPawnsDifference(Board &board) {
+    return board.red_pawns - board.blue_pawns;
+}
 bool board_is_correct(Board& board) {
-    int diff = count_of_type(board, Player::RED) - count_of_type(board, Player::BLUE);
+    int diff = getPawnsDifference(board);
     return diff >= 0 && diff <= 1;
 }
-bool is_board_inpossible(Board& board) {
-    int diff = count_of_type(board, Player::RED) - count_of_type(board, Player::BLUE);
+
+
+bool is_board_impossible(Board& board) {
+    int diff = getPawnsDifference(board);
     bool is_correct =  diff >= 0 && diff <= 1;
     return !is_correct || (is_game_over(board, Player::RED) && (diff == 0 || has_many_endings(board, Player::RED)))  || (is_game_over(board, Player::BLUE) && (diff == 1 ||  has_many_endings(board, Player::BLUE)));
 
 }
 
-bool can_win_in_n_moves_inside(Board board, Player player, int moves) {
-    int diff = count_of_type(board, Player::RED) - count_of_type(board, Player::BLUE);
-    if (board.ok_board_response == 0) {
-        if (diff < 0 || diff > 1 || is_board_inpossible(board) ||
-            is_game_over(board, Player::RED) || is_game_over(board, Player::BLUE)) {
-            board.ok_board_response = 2;
-        } else
-            board.ok_board_response = 1;
-    }
-    if (board.ok_board_response == 2)
-        return false;
-    std::vector<int> empty_spaces;
-    for (int y = 0; y < board.size * board.size; y++) {
-        if (board.array[y] == Player::EMPTY)
-            empty_spaces.push_back(y);
-    }
+bool can_win_in_n_moves_inside(Board &board, Player player, int moves, int diff) {
     int enemy_moves = moves;
-    // red starts
-    if (diff == 0 && player == Player::RED)
+    if ((diff == 0 && player == Player::RED) || (diff == 1 && player == Player::BLUE) )
         enemy_moves--;
-    else if (diff == 1 && player == Player::BLUE)
-        enemy_moves--;
-    int total_moves = empty_spaces.size() - enemy_moves;
-    if (total_moves < moves)
+    if (board.empty_spaces - enemy_moves < moves)
         return false;
-    for (auto i: empty_spaces) {
-        board.array[i] = player;
+    for (int i = 0; i < board.empty_spaces; i++) {
+        board.array[board.empty_spaces_array[i]] = player;
         bool is_over = is_game_over(board, player);
-        if (is_over && moves == 1)
+        if (is_over && moves == 1) {
+            board.array[board.empty_spaces_array[i]] = Player::EMPTY;
             return true;
+        }
         else if (!is_over && moves == 2) {
-            for (auto j: empty_spaces) {
-                if (i == j)
-                    continue;
-                board.array[j] = player;
-                if (is_game_over(board, player))
+            for (int j = 0; j < board.empty_spaces; j++) {
+                board.array[board.empty_spaces_array[j]] = player;
+                if (is_game_over(board, player)) {
+                    board.array[board.empty_spaces_array[j]] = Player::EMPTY;
                     return true;
-                board.array[j] = Player::EMPTY;
+                }
+                board.array[board.empty_spaces_array[j]] = Player::EMPTY;
             }
         }
-        board.array[i] = Player::EMPTY;
+        board.array[board.empty_spaces_array[i]] = Player::EMPTY;
     }
     return false;
 }
-void can_win_in_n_moves(Board board, Player player, int moves) {
+
+bool can_win_in_n_moves_inside_perfect(Board& board, Player player, int moves, int diff) {
+
+}
+
+void find_empty_spaces(Board& board) {
+    int top = 0;
+    for (int i = 0; i < board.size * board.size; i++) {
+        if (board.array[i] == Player::EMPTY)
+            board.empty_spaces_array[top++] = i;
+    }
+}
+
+void can_win_in_n_moves(Board& board, Player player, int moves, bool naive = true) {
+    int diff = getPawnsDifference(board);
+    // check and memorize correctness of board
+    if (board.ok_board_response == 0) {
+        if (diff < 0 || diff > 1 ||
+            is_game_over(board, Player::RED) || is_game_over(board, Player::BLUE) || is_board_impossible(board)) {
+            board.ok_board_response = 2;
+        } else {
+            find_empty_spaces(board);
+            board.ok_board_response = 1;
+        }
+    }
     if (board.ok_board_response == 2) {
         std::cout << "NO" << std::endl;
         return;
     }
-    if (can_win_in_n_moves_inside(board, player, moves)) {
+    if (naive && can_win_in_n_moves_inside(board, player, moves, diff)) {
         std::cout << "YES" << std::endl;
-    } else {
+    } else if (!naive && can_win_in_n_moves_inside_perfect(board, player, moves, diff))
+        std::cout << "YES" << std::endl;
+    else {
         std::cout << "NO" << std::endl;
     }
 }
@@ -244,18 +249,15 @@ void can_win_in_n_moves(Board board, Player player, int moves) {
 
 int main() {
     Board board;
-    board.array.reserve(BOARD_SIZE * BOARD_SIZE);
     std::string command;
-    int n = 0;
     while (std::cin >> command) {
         if (command == "---") {
-            n++;
             read_board(board);
             std::cout << std::endl;
         } else if (command == "BOARD_SIZE") {
             std::cout << board.size << std::endl;
         } else if (command == "PAWNS_NUMBER") {
-            std::cout << count(board) << std::endl;
+            std::cout << board.red_pawns + board.blue_pawns << std::endl;
         } else if (command == "IS_BOARD_CORRECT") {
             std::cout << (board_is_correct(board) ? "YES" : "NO") << std::endl;
         } else if (command == "IS_GAME_OVER") {
@@ -270,7 +272,7 @@ int main() {
             else
                 std::cout << "NO" << std::endl;
         } else if (command == "IS_BOARD_POSSIBLE") {
-            if (is_board_inpossible(board))
+            if (is_board_impossible(board))
                 std::cout << "NO" << std::endl;
             else
                 std::cout << "YES" << std::endl;
@@ -282,7 +284,15 @@ int main() {
             can_win_in_n_moves(board, Player::BLUE, 2);
         } else if (command == "CAN_BLUE_WIN_IN_1_MOVE_WITH_NAIVE_OPPONENT") {
             can_win_in_n_moves(board, Player::BLUE, 1);
-        }
+        } else if (command == "CAN_RED_WIN_IN_2_MOVES_WITH_PERFECT_OPPONENT") {
+        can_win_in_n_moves(board, Player::RED, 2, false);
+    } else if (command == "CAN_RED_WIN_IN_1_MOVE_WITH_PERFECT_OPPONENT") {
+        can_win_in_n_moves(board, Player::RED, 1, false);
+    } else if (command == "CAN_BLUE_WIN_IN_2_MOVES_WITH_PERFECT_OPPONENT") {
+        can_win_in_n_moves(board, Player::BLUE, 2, false);
+    } else if (command == "CAN_BLUE_WIN_IN_1_MOVE_WITH_PERFECT_OPPONENT") {
+        can_win_in_n_moves(board, Player::BLUE, 1, false);
+    }
         else {
             std::cout << "Unknown command: " << command << std::endl;
         }
