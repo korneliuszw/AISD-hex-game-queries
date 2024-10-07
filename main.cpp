@@ -78,7 +78,7 @@ void read_board(Board& board) {
             board.array[translateInputColumn(col, row, board.size)] = Player::RED;
         }
     }
-    board.empty_spaces = board.size * board.size - board.red_pawns - board.red_pawns;
+    board.empty_spaces = board.size * board.size - board.red_pawns - board.blue_pawns;
 }
 
 inline void decode_move(int move, int& x, int &y) {
@@ -208,8 +208,64 @@ bool can_win_in_n_moves_inside(Board &board, Player player, int moves, int diff)
     return false;
 }
 
-bool can_win_in_n_moves_inside_perfect(Board& board, Player player, int moves, int diff) {
+int winning_moves_perfect[BOARD_SIZE * BOARD_SIZE];
 
+#include <map>
+#include <set>
+
+int count_unique_moves(Board& board, Player player) {
+    std::set<int> marked;
+    for (int i = 0; i < board.empty_spaces; i++) {
+        if (board.array[board.empty_spaces_array[i]] != Player::EMPTY) continue;
+        board.array[board.empty_spaces_array[i]] = player;
+        if (is_game_over(board, player))
+            marked.insert(i);
+        board.array[board.empty_spaces_array[i]] = Player::EMPTY;
+    }
+    return marked.size();
+}
+
+bool can_win_in_n_moves_inside_perfect(Board& board, Player player, int moves, int diff) {
+    int enemy_moves = moves;
+    if ((diff == 0 && player == Player::RED) || (diff == 1 && player == Player::BLUE) )
+        enemy_moves--;
+    if (board.empty_spaces - enemy_moves < moves)
+        return false;
+
+    if (enemy_moves == 0 && moves == 1 ) {
+        return count_unique_moves(board, player) > 0;
+    } else if (enemy_moves == 1 && moves == 1) {
+        return count_unique_moves(board, player) > 1;
+    } else if (enemy_moves == 1 && moves == 2) {
+        for (int i = 0; i < board.empty_spaces; i++) {
+            board.array[board.empty_spaces_array[i]] = player;
+            if (!is_game_over(board, player) && count_unique_moves(board, player) > 1) {
+                board.array[board.empty_spaces_array[i]] = Player::EMPTY;
+                return true;
+            }
+            board.array[board.empty_spaces_array[i]] = Player::EMPTY;
+        }
+    } else {
+        for (int j = 0; j < board.empty_spaces; j++) {
+            board.array[board.empty_spaces_array[j]] = player == Player::RED ? Player::BLUE : Player::RED;
+            int unique_wins = 0;
+            for (int i = 0; i < board.empty_spaces; i++) {
+                if (i == j) continue;
+                board.array[board.empty_spaces_array[i]] = player;
+                if (!is_game_over(board, player) && count_unique_moves(board, player) > 1) {
+                    unique_wins++;
+                }
+                board.array[board.empty_spaces_array[i]] = Player::EMPTY;
+            }
+            if (unique_wins < 1) {
+                board.array[board.empty_spaces_array[j]] = Player::EMPTY;
+                return false;
+            }
+            board.array[board.empty_spaces_array[j]] = Player::EMPTY;
+        }
+        return true;
+    }
+    return false;
 }
 
 void find_empty_spaces(Board& board) {
